@@ -12,13 +12,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// type PodDetails struct {
-// 	PodName      string                       `json:"PodName"`
-// 	PodNamespace string                       `json:"PodNamespace"`
-// 	//PodYaml      string                       `json:"PodYaml"`
-// 	PodLabels    map[string]map[string]string `json:"PodLabels"`
-// }
-
 func main() {
 	// Load the Kubernetes configuration
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
@@ -36,21 +29,21 @@ func main() {
 		log.Fatalf("Error creating dynamic client: %v", err)
 	}
 
-	// Define the GroupVersionResource for Pods
+	// Define the GroupVersionResource for deployments
 	gvr := schema.GroupVersionResource{
-		Group:    "",
+		Group:    "apps",
 		Version:  "v1",
-		Resource: "pods",
+		Resource: "deployments",
 	}
 
-	// List all Pods in all namespaces
+	// List all deployments in all namespaces
 	podList, err := dynClient.Resource(gvr).Namespace(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
 
-	// Print the list of Pods
-	printResources(podList, "pods")
+	// Print the list of deployments
+	printResources(podList, "deployments")
 
 }
 
