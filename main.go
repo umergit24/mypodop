@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	"gopkg.in/yaml.v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
@@ -51,15 +52,48 @@ func servePods(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Serve the list of Pods as HTML
+	// Serve the list of Pods as HTML with their YAML manifests
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, "<html><body>")
-	fmt.Fprintf(w, "<h1>Pods List</h1>")
+	fmt.Fprintf(w, "<h1>Pods List with YAML Definitions</h1>")
 	fmt.Fprintf(w, "<p>Found %d pods:</p>", len(podList.Items))
-	fmt.Fprintf(w, "<ul>")
+
 	for _, item := range podList.Items {
-		fmt.Fprintf(w, "<li>%s</li>", item.GetName())
+		podName := item.GetName()
+		podNamespace := item.GetNamespace()
+
+		// Fetch the full Pod resource, including its YAML manifest
+		podResource, err := dynClient.Resource(gvr).Namespace(podNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error fetching pod details: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Convert the Pod resource to YAML format
+		podYAML, err := podResource.MarshalJSON()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error marshalling pod to YAML: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Convert JSON to YAML
+		var podYAMLFormatted map[string]interface{}
+		err = yaml.Unmarshal(podYAML, &podYAMLFormatted)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error unmarshalling JSON to YAML: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		podYAMLStr, err := yaml.Marshal(&podYAMLFormatted)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error marshalling YAML: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Display Pod Name and its YAML manifest
+		fmt.Fprintf(w, "<h2>Pod: %s</h2>", podName)
+		fmt.Fprintf(w, "<pre>%s</pre>", string(podYAMLStr))
 	}
-	fmt.Fprintf(w, "</ul>")
+
 	fmt.Fprintf(w, "</body></html>")
 }
