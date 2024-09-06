@@ -4,22 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 
-	"gopkg.in/yaml.v2"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/yaml"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func main() {
-	http.HandleFunc("/", servePods)
-	fmt.Println("Starting server at http://localhost:8080/")
-	log.Fatal(http.ListenAndServe(":8080", nil))
-}
-
-func servePods(w http.ResponseWriter, r *http.Request) {
 	// Load the Kubernetes configuration
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	configOverrides := &clientcmd.ConfigOverrides{}
@@ -27,15 +22,13 @@ func servePods(w http.ResponseWriter, r *http.Request) {
 
 	config, err := kubeconfig.ClientConfig()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error getting Kubernetes config: %v", err), http.StatusInternalServerError)
-		return
+		log.Fatalf("Error getting Kubernetes config: %v", err)
 	}
 
 	// Create a Dynamic Client
 	dynClient, err := dynamic.NewForConfig(config)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error creating dynamic client: %v", err), http.StatusInternalServerError)
-		return
+		log.Fatalf("Error creating dynamic client: %v", err)
 	}
 
 	// Define the GroupVersionResource for Pods
@@ -48,52 +41,33 @@ func servePods(w http.ResponseWriter, r *http.Request) {
 	// List all Pods in all namespaces
 	podList, err := dynClient.Resource(gvr).Namespace(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error listing pods: %v", err), http.StatusInternalServerError)
-		return
+		panic(err.Error())
 	}
 
-	// Serve the list of Pods as HTML with their YAML manifests
-	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, "<html><body>")
-	fmt.Fprintf(w, "<h1>Pods List with YAML Definitions</h1>")
-	fmt.Fprintf(w, "<p>Found %d pods:</p>", len(podList.Items))
+	// Print the list of Pods with their YAML manifests
+	printResourcesWithYAML(podList, "pods", dynClient, gvr)
+}
 
-	for _, item := range podList.Items {
-		podName := item.GetName()
-		podNamespace := item.GetNamespace()
+func printResourcesWithYAML(list *unstructured.UnstructuredList, resourceName string, dynClient dynamic.Interface, gvr schema.GroupVersionResource) {
+	fmt.Printf("Found %d %s\n", len(list.Items), resourceName)
+	for _, item := range list.Items {
+		fmt.Printf("- %s\n", item.GetName())
 
-		// Fetch the full Pod resource, including its YAML manifest
-		podResource, err := dynClient.Resource(gvr).Namespace(podNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
+		// Retrieve the full unstructured object for the pod
+		pod, err := dynClient.Resource(gvr).Namespace(item.GetNamespace()).Get(context.TODO(), item.GetName(), metav1.GetOptions{})
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Error fetching pod details: %v", err), http.StatusInternalServerError)
-			return
+			log.Printf("Error retrieving pod %s: %v", item.GetName(), err)
+			continue
 		}
 
-		// Convert the Pod resource to YAML format
-		podYAML, err := podResource.MarshalJSON()
+		// Convert the unstructured object to YAML
+		podYAML, err := yaml.Marshal(pod.Object)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Error marshalling pod to YAML: %v", err), http.StatusInternalServerError)
-			return
+			log.Printf("Error converting pod %s to YAML: %v", item.GetName(), err)
+			continue
 		}
 
-		// Convert JSON to YAML
-		var podYAMLFormatted map[string]interface{}
-		err = yaml.Unmarshal(podYAML, &podYAMLFormatted)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Error unmarshalling JSON to YAML: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		podYAMLStr, err := yaml.Marshal(&podYAMLFormatted)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Error marshalling YAML: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		// Display Pod Name and its YAML manifest
-		fmt.Fprintf(w, "<h2>Pod: %s</h2>", podName)
-		fmt.Fprintf(w, "<pre>%s</pre>", string(podYAMLStr))
+		// Print the YAML manifest
+		fmt.Printf("---\n%s\n---\n", string(podYAML))
 	}
-
-	fmt.Fprintf(w, "</body></html>")
 }
