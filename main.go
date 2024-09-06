@@ -135,7 +135,7 @@ func resourceListHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// resourceDetailHandler serves the YAML of a specific resource
+// resourceDetailHandler serves the YAML and labels of a specific resource
 func resourceDetailHandler(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Path[len("/resource/"):]
 
@@ -144,13 +144,32 @@ func resourceDetailHandler(w http.ResponseWriter, r *http.Request) {
 			// Remove managedFields section
 			unstructured.RemoveNestedField(resource.Object, "metadata", "managedFields")
 
+			// Extract labels
+			labels, found, err := unstructured.NestedStringMap(resource.Object, "metadata", "labels")
+			if err != nil {
+				http.Error(w, "Error extracting labels", http.StatusInternalServerError)
+				return
+			}
+
+			// Convert to YAML
 			resourceYAML, err := yaml.Marshal(resource.Object)
 			if err != nil {
 				http.Error(w, "Error converting to YAML", http.StatusInternalServerError)
 				return
 			}
+
+			// Prepare the labels and YAML for output
+			labelLines := ""
+			if found {
+				for key, value := range labels {
+					labelLines += fmt.Sprintf("%s: %s\n", key, value)
+				}
+			} else {
+				labelLines = "No labels found."
+			}
+
 			w.Header().Set("Content-Type", "text/plain")
-			fmt.Fprintf(w, "Resource Type: %s\n\nYAML:\n%s\n", resourceType, resourceYAML)
+			fmt.Fprintf(w, "Resource Type: %s\n\nLabels:\n%s\n\nYAML:\n%s\n", resourceType, labelLines, resourceYAML)
 			return
 		}
 	}
