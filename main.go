@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"html/template"
 	"log"
+	"net/http"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -14,8 +16,13 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+var (
+	resourceData = make(map[string]map[string]*unstructured.Unstructured)
+	dynClient    dynamic.Interface
+)
+
 func main() {
-	// Load the Kubernetes configuration
+	// Load Kubernetes configuration
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	configOverrides := &clientcmd.ConfigOverrides{}
 	kubeconfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
@@ -26,7 +33,7 @@ func main() {
 	}
 
 	// Create a Dynamic Client and a Kubernetes Clientset
-	dynClient, err := dynamic.NewForConfig(config)
+	dynClient, err = dynamic.NewForConfig(config)
 	if err != nil {
 		log.Fatalf("Error creating dynamic client: %v", err)
 	}
@@ -44,10 +51,22 @@ func main() {
 		log.Fatalf("Error retrieving server preferred resources: %v", err)
 	}
 
-	// Iterate over all resources and list them
+	// Initialize resource data
+	initializeResourceData(serverResources)
+
+	// Set up HTTP routes
+	http.HandleFunc("/", mainPageHandler)
+	http.HandleFunc("/resources/", resourceListHandler)
+	http.HandleFunc("/resource/", resourceDetailHandler)
+
+	fmt.Println("Server started at http://localhost:8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+// initializeResourceData populates resourceData with resource information
+func initializeResourceData(serverResources []*metav1.APIResourceList) {
 	for _, resourceList := range serverResources {
 		for _, resource := range resourceList.APIResources {
-			// Skip subresources (like pod/logs, pod/status) and non-listable resources
 			if containsSlash(resource.Name) || !resource.Namespaced {
 				continue
 			}
@@ -58,7 +77,6 @@ func main() {
 				Resource: resource.Name,
 			}
 
-			// Adjust for core group
 			if gvr.Group == "v1" {
 				gvr.Version = gvr.Group
 				gvr.Group = ""
@@ -67,42 +85,80 @@ func main() {
 			// List the resources
 			list, err := dynClient.Resource(gvr).Namespace(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 			if err != nil {
-				fmt.Printf("Error listing %s: %v\n", gvr.Resource, err)
+				log.Printf("Error listing %s: %v\n", gvr.Resource, err)
 				continue
 			}
 
-			// Print the resources and their YAML
-			printResourcesWithYAML(dynClient, list, gvr)
+			// Store resources in memory
+			if resourceData[gvr.Resource] == nil {
+				resourceData[gvr.Resource] = make(map[string]*unstructured.Unstructured)
+			}
+			for _, item := range list.Items {
+				resourceData[gvr.Resource][item.GetName()] = &item
+			}
 		}
 	}
+}
+
+// mainPageHandler serves the main page with resource headings
+func mainPageHandler(w http.ResponseWriter, r *http.Request) {
+	tmpl := `<html><body>
+	<h1>Kubernetes Resources</h1>
+	<ul>{{range $resourceType, $resources := .}}
+		<li><a href="/resources/{{$resourceType}}">{{$resourceType}}</a></li>
+	{{end}}</ul>
+	</body></html>`
+	t := template.Must(template.New("main").Parse(tmpl))
+	t.Execute(w, resourceData)
+}
+
+// resourceListHandler serves the list of resources of a specific type
+func resourceListHandler(w http.ResponseWriter, r *http.Request) {
+	resourceType := r.URL.Path[len("/resources/"):]
+
+	resources, exists := resourceData[resourceType]
+	if !exists {
+		http.NotFound(w, r)
+		return
+	}
+
+	tmpl := `<html><body>
+	<h1>{{.ResourceType}}</h1>
+	<ul>{{range $name, $resource := .Resources}}
+		<li><a href="/resource/{{$name}}">{{$name}}</a></li>
+	{{end}}</ul>
+	</body></html>`
+	t := template.Must(template.New("resourceList").Parse(tmpl))
+	t.Execute(w, map[string]interface{}{
+		"ResourceType": resourceType,
+		"Resources":    resources,
+	})
+}
+
+// resourceDetailHandler serves the YAML of a specific resource
+func resourceDetailHandler(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Path[len("/resource/"):]
+
+	for resourceType, resources := range resourceData {
+		if resource, exists := resources[name]; exists {
+			// Remove managedFields section
+			unstructured.RemoveNestedField(resource.Object, "metadata", "managedFields")
+
+			resourceYAML, err := yaml.Marshal(resource.Object)
+			if err != nil {
+				http.Error(w, "Error converting to YAML", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprintf(w, "Resource Type: %s\n\nYAML:\n%s\n", resourceType, resourceYAML)
+			return
+		}
+	}
+
+	http.NotFound(w, r)
 }
 
 // containsSlash checks if a string contains a slash, indicating it's a subresource
 func containsSlash(s string) bool {
 	return len(s) > 0 && s[0] == '/'
-}
-
-// printResourcesWithYAML prints the count, names, and YAML of resources
-func printResourcesWithYAML(dynClient dynamic.Interface, list *unstructured.UnstructuredList, gvr schema.GroupVersionResource) {
-	fmt.Printf("Found %d %s\n", len(list.Items), gvr.Resource)
-	for _, item := range list.Items {
-		fmt.Printf("- %s\n", item.GetName())
-
-		// Retrieve the full resource object
-		resource, err := dynClient.Resource(gvr).Namespace(item.GetNamespace()).Get(context.TODO(), item.GetName(), metav1.GetOptions{})
-		if err != nil {
-			fmt.Printf("  Error retrieving %s: %v\n", item.GetName(), err)
-			continue
-		}
-
-		// Convert to YAML and print
-		resourceYAML, err := yaml.Marshal(resource.Object)
-		if err != nil {
-			fmt.Printf("  Error converting %s to YAML: %v\n", item.GetName(), err)
-			continue
-		}
-
-		// Print the YAML representation
-		fmt.Printf("  YAML:\n%s\n", string(resourceYAML))
-	}
 }
