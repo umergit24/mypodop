@@ -60,6 +60,9 @@ func printResourcesWithYAML(list *unstructured.UnstructuredList, resourceName st
 			continue
 		}
 
+		// Remove the managedFields section
+		unstructured.RemoveNestedField(pod.Object, "metadata", "managedFields")
+
 		// Convert the unstructured object to YAML
 		podYAML, err := yaml.Marshal(pod.Object)
 		if err != nil {
