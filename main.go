@@ -11,6 +11,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/yaml"
 )
 
 func main() {
@@ -70,8 +71,8 @@ func main() {
 				continue
 			}
 
-			// Print the resources
-			printResources(list, gvr.Resource)
+			// Print the resources and their YAML
+			printResourcesWithYAML(dynClient, list, gvr)
 		}
 	}
 }
@@ -81,10 +82,27 @@ func containsSlash(s string) bool {
 	return len(s) > 0 && s[0] == '/'
 }
 
-// printResources prints the count and names of resources
-func printResources(list *unstructured.UnstructuredList, resourceName string) {
-	fmt.Printf("Found %d %s\n", len(list.Items), resourceName)
+// printResourcesWithYAML prints the count, names, and YAML of resources
+func printResourcesWithYAML(dynClient dynamic.Interface, list *unstructured.UnstructuredList, gvr schema.GroupVersionResource) {
+	fmt.Printf("Found %d %s\n", len(list.Items), gvr.Resource)
 	for _, item := range list.Items {
 		fmt.Printf("- %s\n", item.GetName())
+
+		// Retrieve the full resource object
+		resource, err := dynClient.Resource(gvr).Namespace(item.GetNamespace()).Get(context.TODO(), item.GetName(), metav1.GetOptions{})
+		if err != nil {
+			fmt.Printf("  Error retrieving %s: %v\n", item.GetName(), err)
+			continue
+		}
+
+		// Convert to YAML and print
+		resourceYAML, err := yaml.Marshal(resource.Object)
+		if err != nil {
+			fmt.Printf("  Error converting %s to YAML: %v\n", item.GetName(), err)
+			continue
+		}
+
+		// Print the YAML representation
+		fmt.Printf("  YAML:\n%s\n", string(resourceYAML))
 	}
 }
