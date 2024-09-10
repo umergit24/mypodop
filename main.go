@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -63,7 +64,6 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-// initializeResourceData populates resourceData with resource information
 func initializeResourceData(serverResources []*metav1.APIResourceList) {
 	for _, resourceList := range serverResources {
 		for _, resource := range resourceList.APIResources {
@@ -112,7 +112,6 @@ func mainPageHandler(w http.ResponseWriter, r *http.Request) {
 	t.Execute(w, resourceData)
 }
 
-// resourceListHandler serves the list of resources of a specific type
 func resourceListHandler(w http.ResponseWriter, r *http.Request) {
 	resourceType := r.URL.Path[len("/resources/"):]
 
@@ -123,11 +122,11 @@ func resourceListHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tmpl := `<html><body>
-	<h1>{{.ResourceType}}</h1>
-	<ul>{{range $name, $resource := .Resources}}
-		<li><a href="/resource/{{$name}}">{{$name}}</a></li>
-	{{end}}</ul>
-	</body></html>`
+    <h1>{{.ResourceType}}</h1>
+    <ul>{{range $name, $resource := .Resources}}
+        <li><a href="/resource/{{$.ResourceType}}/{{$name}}">{{$name}}</a></li>
+    {{end}}</ul>
+    </body></html>`
 	t := template.Must(template.New("resourceList").Parse(tmpl))
 	t.Execute(w, map[string]interface{}{
 		"ResourceType": resourceType,
@@ -135,46 +134,38 @@ func resourceListHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// resourceDetailHandler serves the YAML and labels of a specific resource
 func resourceDetailHandler(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Path[len("/resource/"):]
+	parts := strings.SplitN(r.URL.Path[len("/resource/"):], "/", 2)
+	if len(parts) != 2 {
+		http.NotFound(w, r)
+		return
+	}
+	resourceType, name := parts[0], parts[1]
 
-	for resourceType, resources := range resourceData {
-		if resource, exists := resources[name]; exists {
-			// Remove managedFields section
-			unstructured.RemoveNestedField(resource.Object, "metadata", "managedFields")
-
-			// Extract labels
-			labels, found, err := unstructured.NestedStringMap(resource.Object, "metadata", "labels")
-			if err != nil {
-				http.Error(w, "Error extracting labels", http.StatusInternalServerError)
-				return
-			}
-
-			// Convert to YAML
-			resourceYAML, err := yaml.Marshal(resource.Object)
-			if err != nil {
-				http.Error(w, "Error converting to YAML", http.StatusInternalServerError)
-				return
-			}
-
-			// Prepare the labels and YAML for output
-			labelLines := ""
-			if found {
-				for key, value := range labels {
-					labelLines += fmt.Sprintf("%s: %s\n", key, value)
-				}
-			} else {
-				labelLines = "No labels found."
-			}
-
-			w.Header().Set("Content-Type", "text/plain")
-			fmt.Fprintf(w, "Resource Type: %s\n\nLabels:\n%s\n\nYAML:\n%s\n", resourceType, labelLines, resourceYAML)
-			return
-		}
+	resources, exists := resourceData[resourceType]
+	if !exists {
+		http.NotFound(w, r)
+		return
 	}
 
-	http.NotFound(w, r)
+	resource, exists := resources[name]
+	if !exists {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Remove managedFields section
+	unstructured.RemoveNestedField(resource.Object, "metadata", "managedFields")
+
+	// Convert to YAML
+	resourceYAML, err := yaml.Marshal(resource.Object)
+	if err != nil {
+		http.Error(w, "Error converting to YAML", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(w, "Resource Type: %s\n\nYAML:\n%s\n", resourceType, resourceYAML)
 }
 
 // containsSlash checks if a string contains a slash, indicating it's a subresource
