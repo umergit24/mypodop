@@ -57,8 +57,8 @@ func main() {
 
 	// Set up HTTP routes
 	http.HandleFunc("/", mainPageHandler)
-	http.HandleFunc("/resources/", resourceListHandler)
-	http.HandleFunc("/resource/", resourceDetailHandler)
+	http.HandleFunc("/list/", resourceListHandler)
+	http.HandleFunc("/details/", resourceDetailHandler)
 
 	fmt.Println("Server started at http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -105,7 +105,7 @@ func mainPageHandler(w http.ResponseWriter, r *http.Request) {
 	tmpl := `<html><body>
 	<h1>Kubernetes Resources</h1>
 	<ul>{{range $resourceType, $resources := .}}
-		<li><a href="/resources/{{$resourceType}}">{{$resourceType}}</a></li>
+		<li><a href="/list/{{$resourceType}}">{{$resourceType}}</a></li>
 	{{end}}</ul>
 	</body></html>`
 	t := template.Must(template.New("main").Parse(tmpl))
@@ -113,7 +113,7 @@ func mainPageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func resourceListHandler(w http.ResponseWriter, r *http.Request) {
-	resourceType := r.URL.Path[len("/resources/"):]
+	resourceType := r.URL.Path[len("/list/"):]
 
 	resources, exists := resourceData[resourceType]
 	if !exists {
@@ -124,7 +124,7 @@ func resourceListHandler(w http.ResponseWriter, r *http.Request) {
 	tmpl := `<html><body>
     <h1>{{.ResourceType}}</h1>
     <ul>{{range $name, $resource := .Resources}}
-        <li><a href="/resource/{{$.ResourceType}}/{{$name}}">{{$name}}</a></li>
+        <li><a href="/details/{{$.ResourceType}}/{{$name}}">{{$name}}</a></li>
     {{end}}</ul>
     </body></html>`
 	t := template.Must(template.New("resourceList").Parse(tmpl))
@@ -135,7 +135,7 @@ func resourceListHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func resourceDetailHandler(w http.ResponseWriter, r *http.Request) {
-	parts := strings.SplitN(r.URL.Path[len("/resource/"):], "/", 2)
+	parts := strings.SplitN(r.URL.Path[len("/details/"):], "/", 2)
 	if len(parts) != 2 {
 		http.NotFound(w, r)
 		return
