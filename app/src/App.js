@@ -1,17 +1,16 @@
 import React from 'react';
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
-import MainPage from './MainPage';
-import ResourceList from './ResourceList';
-import ResourceDetail from './ResourceDetail';
+import { BrowserRouter as Router } from 'react-router-dom';
+import Sidebar from './Sidebar';
+import MainContent from './MainContent';
+import './App.css'; // Import the new CSS file
 
 function App() {
   return (
     <Router>
-      <Routes>
-        <Route path="/" element={<MainPage />} />
-        <Route path="/list/:resourceType" element={<ResourceList />} />
-        <Route path="/details/:resourceType/:name" element={<ResourceDetail />} />
-      </Routes>
+      <div className="app-container">
+        <Sidebar />
+        <MainContent />
+      </div>
     </Router>
   );
 }

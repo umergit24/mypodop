@@ -131,7 +131,8 @@ func resourceListHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resourceNames)
 }
 
-// resourceDetailHandler serves the details of a specific resource in JSON or YAML
+
+// resourceDetailHandler serves the details of a specific resource in YAML
 func resourceDetailHandler(w http.ResponseWriter, r *http.Request) {
 	parts := strings.SplitN(r.URL.Path[len("/details/"):], "/", 2)
 	if len(parts) != 2 {
@@ -152,27 +153,20 @@ func resourceDetailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if YAML is requested
-	if strings.Contains(r.Header.Get("Accept"), "text/yaml") {
-		// Remove managedFields section
-		unstructured.RemoveNestedField(resource.Object, "metadata", "managedFields")
+	// Remove managedFields section before converting to YAML
+	unstructured.RemoveNestedField(resource.Object, "metadata", "managedFields")
 
-		// Convert to YAML
-		resourceYAML, err := yaml.Marshal(resource.Object)
-		if err != nil {
-			http.Error(w, "Error converting to YAML", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/yaml")
-		w.Write(resourceYAML)
+	// Convert to YAML
+	resourceYAML, err := yaml.Marshal(resource.Object)
+	if err != nil {
+		http.Error(w, "Error converting to YAML", http.StatusInternalServerError)
 		return
 	}
 
-	// Otherwise, return JSON
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resource.Object)
+	w.Header().Set("Content-Type", "text/yaml")
+	w.Write(resourceYAML)
 }
+
 
 // containsSlash checks if a string contains a slash, indicating it's a subresource
 func containsSlash(s string) bool {

@@ -4,14 +4,13 @@ import { useParams } from 'react-router-dom';
 function ResourceDetail() {
   const { resourceType, name } = useParams();
   const [resource, setResource] = useState(null);
-  const [isYaml, setIsYaml] = useState(false);
 
   useEffect(() => {
     async function fetchResourceDetail() {
       try {
         const response = await fetch(`http://localhost:8080/details/${resourceType}/${name}`, {
           headers: {
-            'Accept': isYaml ? 'text/yaml' : 'application/json',
+            'Accept': 'text/yaml',
           },
         });
         if (!response.ok) {
@@ -25,16 +24,11 @@ function ResourceDetail() {
     }
 
     fetchResourceDetail();
-  }, [resourceType, name, isYaml]);
-
-  const handleToggleFormat = () => setIsYaml(!isYaml);
+  }, [resourceType, name]);
 
   return (
     <div>
-      <h1>{resourceType} Detail</h1>
-      <button onClick={handleToggleFormat}>
-        {isYaml ? 'Show as JSON' : 'Show as YAML'}
-      </button>
+      <h1>{resourceType} Manifest</h1>
       <pre>{resource}</pre>
     </div>
   );

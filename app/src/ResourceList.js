@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react'; // useEffect for fetching data, useState for state management
+import { useParams, Link } from 'react-router-dom'; // useParams for dynamic URL parameters, Link for navigation
 
 function ResourceList() {
   const { resourceType } = useParams();
