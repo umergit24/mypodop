@@ -9,16 +9,12 @@ function ResourceList() {
     async function fetchResourceList() {
       try {
         const response = await fetch(`http://localhost:8080/list/${resourceType}`);
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
         const data = await response.json();
         setResourceNames(data);
       } catch (error) {
         console.error('Error fetching resource list:', error);
       }
     }
-
     fetchResourceList();
   }, [resourceType]);
 
