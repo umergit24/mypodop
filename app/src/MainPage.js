@@ -2,21 +2,32 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 function MainPage() {
-  const [resources, setResources] = useState({});
+  const [resourceTypes, setResourceTypes] = useState([]);
 
   useEffect(() => {
-    fetch('http://localhost:8080/')
-      .then(response => response.json())
-      .then(data => setResources(data));
+    async function fetchResourceTypes() {
+      try {
+        const response = await fetch('http://localhost:8080/');
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        const data = await response.json();
+        setResourceTypes(data);
+      } catch (error) {
+        console.error('Error fetching resource types:', error);
+      }
+    }
+
+    fetchResourceTypes();
   }, []);
 
   return (
     <div>
-      <h1>Kubernetes Resources</h1>
+      <h1>Resource Types</h1>
       <ul>
-        {Object.keys(resources).map(resourceType => (
-          <li key={resourceType}>
-            <Link to={`/list/${resourceType}`}>{resourceType}</Link>
+        {resourceTypes.map((type) => (
+          <li key={type}>
+            <Link to={`/list/${type}`}>{type}</Link>
           </li>
         ))}
       </ul>

@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"html/template"
 	"log"
 	"net/http"
 	"strings"
@@ -56,9 +56,10 @@ func main() {
 	initializeResourceData(serverResources)
 
 	// Set up HTTP routes
-	http.HandleFunc("/", mainPageHandler)
-	http.HandleFunc("/list/", resourceListHandler)
-	http.HandleFunc("/details/", resourceDetailHandler)
+	http.Handle("/", enableCors(http.HandlerFunc(mainPageHandler)))
+	http.Handle("/list/", enableCors(http.HandlerFunc(resourceListHandler)))
+	http.Handle("/details/", enableCors(http.HandlerFunc(resourceDetailHandler)))
+
 
 	fmt.Println("Server started at http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -100,18 +101,18 @@ func initializeResourceData(serverResources []*metav1.APIResourceList) {
 	}
 }
 
-// mainPageHandler serves the main page with resource headings
+// mainPageHandler serves the list of all resource types in JSON
 func mainPageHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl := `<html><body>
-	<h1>Kubernetes Resources</h1>
-	<ul>{{range $resourceType, $resources := .}}
-		<li><a href="/list/{{$resourceType}}">{{$resourceType}}</a></li>
-	{{end}}</ul>
-	</body></html>`
-	t := template.Must(template.New("main").Parse(tmpl))
-	t.Execute(w, resourceData)
+	resourceTypes := make([]string, 0, len(resourceData))
+	for resourceType := range resourceData {
+		resourceTypes = append(resourceTypes, resourceType)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resourceTypes)
 }
 
+// resourceListHandler serves the list of resources for a specific type in JSON
 func resourceListHandler(w http.ResponseWriter, r *http.Request) {
 	resourceType := r.URL.Path[len("/list/"):]
 
@@ -121,19 +122,16 @@ func resourceListHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpl := `<html><body>
-    <h1>{{.ResourceType}}</h1>
-    <ul>{{range $name, $resource := .Resources}}
-        <li><a href="/details/{{$.ResourceType}}/{{$name}}">{{$name}}</a></li>
-    {{end}}</ul>
-    </body></html>`
-	t := template.Must(template.New("resourceList").Parse(tmpl))
-	t.Execute(w, map[string]interface{}{
-		"ResourceType": resourceType,
-		"Resources":    resources,
-	})
+	resourceNames := make([]string, 0, len(resources))
+	for name := range resources {
+		resourceNames = append(resourceNames, name)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resourceNames)
 }
 
+// resourceDetailHandler serves the details of a specific resource in JSON or YAML
 func resourceDetailHandler(w http.ResponseWriter, r *http.Request) {
 	parts := strings.SplitN(r.URL.Path[len("/details/"):], "/", 2)
 	if len(parts) != 2 {
@@ -154,21 +152,46 @@ func resourceDetailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove managedFields section
-	unstructured.RemoveNestedField(resource.Object, "metadata", "managedFields")
+	// Check if YAML is requested
+	if strings.Contains(r.Header.Get("Accept"), "text/yaml") {
+		// Remove managedFields section
+		unstructured.RemoveNestedField(resource.Object, "metadata", "managedFields")
 
-	// Convert to YAML
-	resourceYAML, err := yaml.Marshal(resource.Object)
-	if err != nil {
-		http.Error(w, "Error converting to YAML", http.StatusInternalServerError)
+		// Convert to YAML
+		resourceYAML, err := yaml.Marshal(resource.Object)
+		if err != nil {
+			http.Error(w, "Error converting to YAML", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/yaml")
+		w.Write(resourceYAML)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprintf(w, "Resource Type: %s\n\nYAML:\n%s\n", resourceType, resourceYAML)
+	// Otherwise, return JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resource.Object)
 }
 
 // containsSlash checks if a string contains a slash, indicating it's a subresource
 func containsSlash(s string) bool {
 	return len(s) > 0 && s[0] == '/'
+}
+
+
+func enableCors(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Access-Control-Allow-Origin", "*")  // Allow any domain, replace "*" with specific domain for production
+        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+        // Handle preflight requests (OPTIONS method)
+        if r.Method == "OPTIONS" {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+
+        next.ServeHTTP(w, r)
+    })
 }

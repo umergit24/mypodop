@@ -1,21 +1,32 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 
 function ResourceList() {
   const { resourceType } = useParams();
-  const [resources, setResources] = useState([]);
+  const [resourceNames, setResourceNames] = useState([]);
 
   useEffect(() => {
-    fetch(`http://localhost:8080/list/${resourceType}`)
-      .then(response => response.json())
-      .then(data => setResources(data));
+    async function fetchResourceList() {
+      try {
+        const response = await fetch(`http://localhost:8080/list/${resourceType}`);
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        const data = await response.json();
+        setResourceNames(data);
+      } catch (error) {
+        console.error('Error fetching resource list:', error);
+      }
+    }
+
+    fetchResourceList();
   }, [resourceType]);
 
   return (
     <div>
-      <h1>{resourceType}</h1>
+      <h1>{resourceType} List</h1>
       <ul>
-        {Object.keys(resources).map(name => (
+        {resourceNames.map((name) => (
           <li key={name}>
             <Link to={`/details/${resourceType}/${name}`}>{name}</Link>
           </li>
